@@ -1,6 +1,7 @@
 ARG PYTHON_VERSION=3.14
 
-FROM ghcr.io/astral-sh/uv:python$PYTHON_VERSION-bookworm-slim AS builder
+# --- Python builder (uv) ---
+FROM ghcr.io/astral-sh/uv:python$PYTHON_VERSION-bookworm-slim AS python-builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,15 +21,24 @@ ADD . /build
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+# --- Dashboard builder (bun) ---
+FROM oven/bun:1 AS dashboard-builder
+WORKDIR /dashboard
+COPY dashboard/package.json dashboard/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY dashboard/ ./
+RUN bun run build --outDir /dashboard-build --assetsDir statics
 
+# --- Final image ---
 FROM python:$PYTHON_VERSION-slim-bookworm
 
-COPY --from=builder /build /code
+COPY --from=python-builder /build /code
+COPY --from=dashboard-builder /dashboard-build /code/dashboard/build
+
 WORKDIR /code
 
 ENV PATH="/code/.venv/bin:$PATH"
 
-# Install curl for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -39,7 +49,6 @@ RUN chmod +x /usr/bin/pasarguard-cli
 COPY tui_wrapper.sh /usr/bin/pasarguard-tui
 RUN chmod +x /usr/bin/pasarguard-tui
 
-# Copy healthcheck script
 COPY healthcheck.sh /code/healthcheck.sh
 RUN chmod +x /code/healthcheck.sh
 
