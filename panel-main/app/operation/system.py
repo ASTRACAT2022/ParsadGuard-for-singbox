@@ -1,0 +1,105 @@
+import asyncio
+from datetime import timedelta
+
+from app import __version__
+from app.core.manager import core_manager
+from app.db import AsyncSession
+from app.db.crud.admin import get_admin
+from app.db.crud.general import get_system_usage
+from app.db.crud.user import count_online_users, get_users_count_by_status
+from app.db.models import UserStatus
+from app.models.admin import AdminDetails
+from app.models.system import InboundSummary, SystemStats
+from app.utils.system import cpu_usage, disk_usage, get_uptime, memory_usage
+
+from . import BaseOperation
+
+
+class SystemOperation(BaseOperation):
+    @staticmethod
+    async def get_system_stats(db: AsyncSession, admin: AdminDetails, admin_username: str | None = None) -> SystemStats:
+        """Fetch system stats including memory, CPU, disk, and user metrics."""
+        # Run sync functions off the event loop
+        mem_task = asyncio.to_thread(memory_usage)
+        cpu_task = asyncio.to_thread(cpu_usage)
+        disk_task = asyncio.to_thread(disk_usage)
+        uptime_task = asyncio.to_thread(get_uptime)
+
+        admin_param = None
+        if admin.is_sudo and admin_username:
+            admin_param = await get_admin(db, admin_username, load_users=False, load_usage_logs=False)
+        elif not admin.is_sudo:
+            admin_param = admin
+
+        system_task = None
+        if not admin_param:
+            system_task = get_system_usage(db)
+
+        admin_id = admin_param.id if admin_param else None
+
+        # Get user counts by status in a single query and online users count
+        statuses = [UserStatus.active, UserStatus.disabled, UserStatus.on_hold, UserStatus.expired, UserStatus.limited]
+        user_counts_task = get_users_count_by_status(db, statuses, admin_id)
+        online_users_task = count_online_users(db, timedelta(minutes=2), admin_id)
+
+        tasks = [mem_task, cpu_task, disk_task, user_counts_task, online_users_task, uptime_task]
+        if system_task is not None:
+            tasks.append(system_task)
+
+        results = await asyncio.gather(*tasks)
+
+        mem = results[0]
+        cpu = results[1]
+        disk = results[2]
+        user_counts = results[3]
+        online_users = results[4]
+        uptime_seconds = results[5]
+
+        if system_task is not None:
+            system = results[6]
+            uplink = system.uplink
+            downlink = system.downlink
+        else:
+            uplink = 0
+            downlink = admin_param.used_traffic
+
+        return SystemStats(
+            version=__version__,
+            uptime_seconds=uptime_seconds,
+            mem_total=mem.total,
+            mem_used=mem.used,
+            disk_total=disk.total,
+            disk_used=disk.used,
+            cpu_cores=cpu.cores,
+            cpu_usage=cpu.percent,
+            total_user=user_counts["total"],
+            online_users=online_users,
+            active_users=user_counts[UserStatus.active.value],
+            disabled_users=user_counts[UserStatus.disabled.value],
+            expired_users=user_counts[UserStatus.expired.value],
+            limited_users=user_counts[UserStatus.limited.value],
+            on_hold_users=user_counts[UserStatus.on_hold.value],
+            incoming_bandwidth=uplink,
+            outgoing_bandwidth=downlink,
+        )
+
+    @staticmethod
+    async def get_inbounds() -> list[str]:
+        return await core_manager.get_inbounds()
+
+    @staticmethod
+    async def get_inbound_details() -> list[InboundSummary]:
+        inbounds = await core_manager.get_inbounds_by_tag()
+        summaries: list[InboundSummary] = []
+        for tag, data in sorted(inbounds.items()):
+            protocol = data.get("protocol", "")
+            kwargs: dict = {"tag": tag, "protocol": protocol, "network": data.get("network")}
+            if protocol == "wireguard":
+                addrs = data.get("address")
+                kwargs["wireguard_public_key"] = data.get("public_key") or None
+                kwargs["wireguard_private_key"] = data.get("private_key") or None
+                kwargs["wireguard_pre_shared_key"] = data.get("pre_shared_key") or None
+                kwargs["wireguard_listen_port"] = data.get("listen_port")
+                kwargs["wireguard_addresses"] = list(addrs) if isinstance(addrs, list) else None
+            summaries.append(InboundSummary(**kwargs))
+        return summaries

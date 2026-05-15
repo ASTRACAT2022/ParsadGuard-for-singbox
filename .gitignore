@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+dist/
+*.whl
+uv.lock
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Docker
+*.log
+
+# Build artifacts
+node-main/pasarguard-node-*
+panel-main/build/
+panel-main/dist/
+
+# Certificates
+*.pem
+*.key
+certs/
+
+# Database
+*.db
+*.sqlite3
