@@ -132,7 +132,14 @@ class CoreManager:
 
     def _get_core_class(self, type: CoreType | None):
         normalized_type = self._normalize_type(type)
-        return self.CORE_CLASSES[normalized_type]
+        # Fall back to SingBoxConfig for legacy xray cores still in the DB
+        cls = self.CORE_CLASSES.get(normalized_type)
+        if cls is None:
+            self._logger.warning(
+                f"Unknown core type {normalized_type.value!r}, falling back to sing-box config parser"
+            )
+            return SingBoxConfig
+        return cls
 
     def _core_from_json(self, data: dict) -> AbstractCore:
         type = data.get("type")
