@@ -44,5 +44,3 @@ def downgrade() -> None:
     else:
         with op.batch_alter_table("nodes") as batch_op:
             batch_op.alter_column("core_version", new_column_name="xray_version")
-    elif dialect in ("mysql", "mariadb"):
-        op.execute("ALTER TABLE core_configs ALTER COLUMN type SET DEFAULT 'xray'")
