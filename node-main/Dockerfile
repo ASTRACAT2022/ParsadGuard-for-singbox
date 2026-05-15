@@ -33,12 +33,14 @@ FROM alpine:latest
 
 LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 
-RUN apk update && apk add --no-cache wireguard-tools nftables iproute2 procps ca-certificates
+RUN apk update && apk add --no-cache wireguard-tools nftables iproute2 procps ca-certificates openssl
 
 WORKDIR /app
 COPY --from=builder /src/main /app/main
 COPY --from=builder /usr/local/bin/sing-box /usr/local/bin/sing-box
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 ENV SINGBOX_EXECUTABLE_PATH=/usr/local/bin/sing-box
 
-ENTRYPOINT ["./main"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -14,7 +14,7 @@ from datetime import datetime as dt, timezone as tz
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.xray import XRayConfig
+from app.core.singbox import SingBoxConfig as CoreConfig
 
 
 # revision identifiers, used by Alembic.
@@ -80,7 +80,7 @@ def upgrade() -> None:
         with open(migration_settings.xray_json, "r") as file:
             config = commentjson.loads(file.read())
 
-        XRayConfig(
+        CoreConfig(
             config,
             migration_settings.xray_exclude_inbound_tags,
             migration_settings.xray_fallbacks_inbound_tags,
