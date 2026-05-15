@@ -96,11 +96,17 @@ install_panel() {
 
     # Install python3 + venv (distro-specific name)
     ensure_deps python3 git curl
-    python3 -m venv --help &>/dev/null || {
-        # On Debian/Ubuntu, python3-venv is separate; match the python3 minor version
+    # Debian splits ensurepip into python3.X-venv — install it unconditionally
+    if [ -f /etc/debian_version ]; then
         PY_VER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3")
-        $INSTALL_CMD "python${PY_VER}-venv" 2>/dev/null || $INSTALL_CMD python3-venv
-    }
+        info "Installing python${PY_VER}-venv..."
+        sudo apt-get update -qq && sudo apt-get install -y -qq "python${PY_VER}-venv" || {
+            warn "Failed to install python${PY_VER}-venv, trying python3-venv..."
+            sudo apt-get install -y -qq python3-venv
+        }
+    elif ! python3 -m venv --help &>/dev/null; then
+        $INSTALL_CMD python3-venv
+    fi
 
     if [ -d "$PANEL_DIR/.git" ]; then
         info "Existing install found. Updating..."
