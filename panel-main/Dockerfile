@@ -41,6 +41,7 @@ ENV PATH="/code/.venv/bin:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY cli_wrapper.sh /usr/bin/pasarguard-cli
