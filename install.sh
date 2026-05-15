@@ -4,6 +4,13 @@ set -euo pipefail
 # ============================================================
 #  PasarGuard-for-singbox — Unified Installer
 #  Repo: https://github.com/ASTRACAT2022/ParsadGuard-for-singbox
+#
+#  Interactive:   curl -sLo install.sh https://... && bash install.sh
+#  Non-interactive:
+#    bash install.sh panel
+#    bash install.sh node
+#    bash install.sh sub [lang]
+#    bash install.sh all
 # ============================================================
 
 REPO="https://github.com/ASTRACAT2022/ParsadGuard-for-singbox"
@@ -13,12 +20,12 @@ DEFAULT_NODE_DIR="/opt/pasarguard-node"
 DEFAULT_SUB_DIR="/var/lib/pasarguard/templates/subscription"
 DEFAULT_ENV_FILE="/opt/pasarguard/.env"
 
-# --- Colors ---
+# --- Colors (using printf for portability) ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[1;34m'; NC='\033[0m'
-info()  { echo -e "${GREEN}[+]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
-err()   { echo -e "${RED}[x]${NC} $*"; }
-title() { echo -e "\n${BLUE}=== $* ===${NC}\n"; }
+info()  { printf "%b[+]%b %s\n" "$GREEN" "$NC" "$*"; }
+warn()  { printf "%b[!]%b %s\n" "$YELLOW" "$NC" "$*"; }
+err()   { printf "%b[x]%b %s\n" "$RED" "$NC" "$*"; }
+title() { printf "\n%b=== %s ===%b\n\n" "$BLUE" "$*" "$NC"; }
 
 # ============================================================
 #  Utility
@@ -96,10 +103,8 @@ install_panel() {
         info "Cloning repository..."
         sudo mkdir -p "$PANEL_DIR"
         sudo chown "$(whoami)" "$PANEL_DIR"
-        # Clone only panel-main for the panel
         git clone --depth 1 --filter=blob:none --sparse "$REPO" "$PANEL_DIR"
         git -C "$PANEL_DIR" sparse-checkout set panel-main
-        # Move panel-main contents up (keep .git in panel-main/../)
         mv "$PANEL_DIR/panel-main/"* "$PANEL_DIR/" 2>/dev/null || true
         mv "$PANEL_DIR/panel-main/".* "$PANEL_DIR/" 2>/dev/null || true
         rmdir "$PANEL_DIR/panel-main" 2>/dev/null || true
@@ -109,15 +114,21 @@ install_panel() {
 
     info "Setting up Python virtual environment..."
     python3 -m venv .venv
+    # shellcheck disable=SC1091
     source .venv/bin/activate
 
     info "Installing Python dependencies..."
     pip install --upgrade pip
-    pip install -e ".[dev]"
+    pip install --upgrade uv 2>/dev/null || true
+    if command -v uv &>/dev/null; then
+        uv pip install -e ".[dev]"
+    else
+        pip install -e ".[dev]"
+    fi
 
     if [ ! -f .env ]; then
         info "Generating .env file..."
-        cat > .env <<'EOF'
+        cat > .env <<'ENVEOF'
 # Database — defaults to SQLite
 SQLALCHEMY_DATABASE_URL=sqlite+aiosqlite:///db.sqlite3
 
@@ -140,24 +151,23 @@ ROLE=all-in-one
 
 # Node API key (UUID)
 # API_KEY=xxxxxxxx-yyyy-zzzz-mmmm-aaaaaaaaaaa
-EOF
+ENVEOF
         warn "Default .env created. Change SUDO_USERNAME/SUDO_PASSWORD immediately!"
     fi
 
     info "Running database migrations..."
     python -m alembic upgrade head
 
-    # systemd service
     setup_service "pasarguard" "PasarGuard Panel — sing-box Edition" \
         "$PANEL_DIR/.venv/bin/python $PANEL_DIR/main.py" \
         "$PANEL_DIR"
 
     echo ""
     info "Panel installed."
-    echo "  Start:  sudo systemctl start pasarguard"
-    echo "  Enable: sudo systemctl enable --now pasarguard"
-    echo "  Logs:   sudo journalctl -u pasarguard -f"
-    echo "  Web:    http://<server-ip>:8000/dashboard/"
+    printf "  Start:  sudo systemctl start pasarguard\n"
+    printf "  Enable: sudo systemctl enable --now pasarguard\n"
+    printf "  Logs:   sudo journalctl -u pasarguard -f\n"
+    printf "  Web:    http://<server-ip>:8000/dashboard/\n"
 }
 
 # ============================================================
@@ -170,7 +180,7 @@ install_node() {
     NODE_DIR="${NODE_DIR:-$DEFAULT_NODE_DIR}"
     info "Install directory: $NODE_DIR"
 
-    ensure_deps curl tar
+    ensure_deps curl tar git
 
     # --- Install sing-box binary ---
     if ! command -v sing-box &>/dev/null; then
@@ -208,7 +218,7 @@ install_node() {
 
     cd "$NODE_DIR"
 
-    # Try to use pre-built binary from CI; if not available, build from source.
+    # Check for pre-built binary
     info "Checking for pre-built binary..."
     NODE_ARCH="amd64"; case "$(uname -m)" in aarch64|arm64) NODE_ARCH="arm64" ;; esac
     BIN_URL="${REPO}/releases/latest/download/pasarguard-node-linux-${NODE_ARCH}"
@@ -251,18 +261,17 @@ EOF
 
     mkdir -p /var/lib/pg-node/generated
 
-    # systemd service
     setup_service "pasarguard-node" "PasarGuard Node — sing-box" \
         "$NODE_DIR/pasarguard-node" \
         "$NODE_DIR"
 
     echo ""
     info "Node installed."
-    echo "  Start:  sudo systemctl start pasarguard-node"
-    echo "  Enable: sudo systemctl enable --now pasarguard-node"
-    echo "  Logs:   sudo journalctl -u pasarguard-node -f"
+    printf "  Start:  sudo systemctl start pasarguard-node\n"
+    printf "  Enable: sudo systemctl enable --now pasarguard-node\n"
+    printf "  Logs:   sudo journalctl -u pasarguard-node -f\n"
     echo ""
-    warn "IMPORTANT: Copy the API_KEY from $NODE_DIR/.env into the panel's node settings."
+    warn "Copy the API_KEY from $NODE_DIR/.env into the panel's node settings."
 }
 
 # ============================================================
@@ -305,35 +314,62 @@ install_subscription() {
 
     echo ""
     info "Subscription template installed ($LANG_CODE) at $SUB_DIR/index.html"
-    echo "  Restart panel: sudo systemctl restart pasarguard"
+    printf "  Restart panel: sudo systemctl restart pasarguard\n"
 }
 
 # ============================================================
 #  Menu
 # ============================================================
 show_menu() {
-    echo ""
-    echo "  ${BLUE}PasarGuard-for-singbox — Unified Installer${NC}"
-    echo "  ${BLUE}Repo:${NC} $REPO"
-    echo ""
-    echo "  1) Install Panel"
-    echo "  2) Install Node"
-    echo "  3) Install Subscription Template"
-    echo "  4) Install All (Panel + Node)"
-    echo "  5) Exit"
-    echo ""
+    printf "\n"
+    printf "  %bPasarGuard-for-singbox — Unified Installer%b\n" "$BLUE" "$NC"
+    printf "  %bRepo:%b %s\n" "$BLUE" "$NC" "$REPO"
+    printf "\n"
+    printf "  1) Install Panel\n"
+    printf "  2) Install Node\n"
+    printf "  3) Install Subscription Template\n"
+    printf "  4) Install All (Panel + Node)\n"
+    printf "  5) Exit\n"
+    printf "\n"
 }
 
+show_quick_help() {
+    printf "\n"
+    printf "%b PasarGuard-for-singbox Installer %b\n" "$BLUE" "$NC"
+    printf "%b Repo: %b %s\n" "$BLUE" "$NC" "$REPO"
+    printf "\n"
+    printf "  %b Interactive mode: %b\n" "$GREEN" "$NC"
+    printf "    curl -sLo install.sh %s/raw/main/install.sh\n" "$REPO"
+    printf "    bash install.sh\n"
+    printf "\n"
+    printf "  %b Direct mode: %b\n" "$GREEN" "$NC"
+    printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh panel\n" "$REPO"
+    printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh node\n" "$REPO"
+    printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh sub\n" "$REPO"
+    printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh all\n" "$REPO"
+    printf "\n"
+    exit 0
+}
+
+# ============================================================
+#  Main
+# ============================================================
 main() {
-    # Parse --component flag for non-interactive use
-    if [ "${1:-}" = "--component" ] && [ -n "${2:-}" ]; then
-        case "$2" in
-            panel) install_panel ;;
-            node)  install_node ;;
-            sub)   install_subscription "${3:-fa}" ;;
-            *)     err "Unknown component: $2"; exit 1 ;;
+    # Direct mode — first arg is the component
+    if [ $# -ge 1 ]; then
+        case "$1" in
+            panel)   install_panel; exit 0 ;;
+            node)    install_node; exit 0 ;;
+            sub)     install_subscription "${2:-fa}"; exit 0 ;;
+            all)     install_panel; install_node; exit 0 ;;
+            -h|--help|help) show_quick_help; exit 0 ;;
+            *)       err "Unknown component: $1"; show_quick_help; exit 1 ;;
         esac
-        exit 0
+    fi
+
+    # If stdin is NOT a terminal, we can't show interactive menu
+    if [ ! -t 0 ]; then
+        show_quick_help
     fi
 
     while true; do
@@ -347,17 +383,9 @@ main() {
                 lang="${lang:-fa}"
                 install_subscription "$lang"
                 ;;
-            4)
-                install_panel
-                install_node
-                ;;
-            5)
-                info "Done."
-                exit 0
-                ;;
-            *)
-                err "Invalid choice"
-                ;;
+            4) install_panel; install_node ;;
+            5) info "Done."; exit 0 ;;
+            *) err "Invalid choice" ;;
         esac
         echo ""
         read -rp "  Press Enter to return to menu..."
