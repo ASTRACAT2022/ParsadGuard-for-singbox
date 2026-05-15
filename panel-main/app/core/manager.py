@@ -23,6 +23,58 @@ from app.utils.logger import get_logger
 from config import runtime_settings
 
 
+class _LegacyCore(dict):
+    """Pass-through wrapper for legacy (e.g. xray) core configs in the DB.
+
+    Does NOT parse or validate — just holds the raw dict so the panel
+    boots. The admin should replace these with sing-box configs.
+    """
+
+    def __init__(self, config=None, exclude_inbound_tags=None, fallbacks_inbound_tags=None, skip_validation=True):
+        super().__init__(config or {})
+        self._type = "legacy"
+        self.exclude_inbound_tags = set(exclude_inbound_tags or set())
+        self.fallbacks_inbound_tags = set(fallbacks_inbound_tags or set())
+        self._inbounds: list[str] = []
+        self._inbounds_by_tag: dict[str, dict] = {}
+
+    @property
+    def inbounds_by_tag(self) -> dict:
+        return self._inbounds_by_tag
+
+    @property
+    def inbounds(self) -> list[str]:
+        return self._inbounds
+
+    @property
+    def protocols(self) -> frozenset:
+        return frozenset()
+
+    @property
+    def type(self) -> str:
+        return self._type
+
+    def to_str(self, **json_kwargs):
+        import json
+        return json.dumps(self, **json_kwargs)
+
+    def to_json(self) -> dict:
+        return {
+            "type": self.type,
+            "config": dict(self),
+            "exclude_inbound_tags": list(self.exclude_inbound_tags),
+            "fallbacks_inbound_tags": list(self.fallbacks_inbound_tags),
+            "inbounds": self.inbounds,
+            "inbounds_by_tag": self.inbounds_by_tag,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict):
+        return cls(config=data.get("config", {}),
+                   exclude_inbound_tags=set(data.get("exclude_inbound_tags", [])),
+                   fallbacks_inbound_tags=set(data.get("fallbacks_inbound_tags", []) or []))
+
+
 class CoreManager:
     STATE_CACHE_KEY = "state"
     KV_BUCKET_NAME = "core_manager_state"
@@ -132,13 +184,12 @@ class CoreManager:
 
     def _get_core_class(self, type: CoreType | None):
         normalized_type = self._normalize_type(type)
-        # Fall back to SingBoxConfig for legacy xray cores still in the DB
         cls = self.CORE_CLASSES.get(normalized_type)
         if cls is None:
             self._logger.warning(
-                f"Unknown core type {normalized_type.value!r}, falling back to sing-box config parser"
+                f"Unknown core type {normalized_type.value!r}, wrapping as pass-through dict"
             )
-            return SingBoxConfig
+            return _LegacyCore
         return cls
 
     def _core_from_json(self, data: dict) -> AbstractCore:
