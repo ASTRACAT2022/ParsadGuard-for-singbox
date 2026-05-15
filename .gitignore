@@ -7,7 +7,6 @@ venv/
 *.egg
 dist/
 *.whl
-uv.lock
 
 # Go
 *.exe
