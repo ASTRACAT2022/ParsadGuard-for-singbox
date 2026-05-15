@@ -20,12 +20,12 @@ DEFAULT_NODE_DIR="/opt/pasarguard-node"
 DEFAULT_SUB_DIR="/var/lib/pasarguard/templates/subscription"
 DEFAULT_ENV_FILE="/opt/pasarguard/.env"
 
-# --- Colors (using printf for portability) ---
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[1;34m'; NC='\033[0m'
-info()  { printf "%b[+]%b %s\n" "$GREEN" "$NC" "$*"; }
-warn()  { printf "%b[!]%b %s\n" "$YELLOW" "$NC" "$*"; }
-err()   { printf "%b[x]%b %s\n" "$RED" "$NC" "$*"; }
-title() { printf "\n%b=== %s ===%b\n\n" "$BLUE" "$*" "$NC"; }
+# --- Colors ---
+RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; BLUE=$'\033[1;34m'; NC=$'\033[0m'
+info()  { printf "%s[+]%s %s\n" "$GREEN" "$NC" "$*"; }
+warn()  { printf "%s[!]%s %s\n" "$YELLOW" "$NC" "$*"; }
+err()   { printf "%s[x]%s %s\n" "$RED" "$NC" "$*"; }
+title() { printf "\n%s=== %s ===%s\n\n" "$BLUE" "$*" "$NC"; }
 
 # ============================================================
 #  Utility
@@ -94,7 +94,13 @@ install_panel() {
     PANEL_DIR="${PANEL_DIR:-$DEFAULT_PANEL_DIR}"
     info "Install directory: $PANEL_DIR"
 
+    # Install python3 + venv (distro-specific name)
     ensure_deps python3 git curl
+    python3 -m venv --help &>/dev/null || {
+        # On Debian/Ubuntu, python3-venv is separate; match the python3 minor version
+        PY_VER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3")
+        $INSTALL_CMD "python${PY_VER}-venv" 2>/dev/null || $INSTALL_CMD python3-venv
+    }
 
     if [ -d "$PANEL_DIR/.git" ]; then
         info "Existing install found. Updating..."
@@ -113,7 +119,10 @@ install_panel() {
     cd "$PANEL_DIR"
 
     info "Setting up Python virtual environment..."
-    python3 -m venv .venv
+    python3 -m venv .venv || {
+        err "Failed to create virtual environment. Install python3-venv and retry."
+        exit 1
+    }
     # shellcheck disable=SC1091
     source .venv/bin/activate
 
@@ -322,8 +331,8 @@ install_subscription() {
 # ============================================================
 show_menu() {
     printf "\n"
-    printf "  %bPasarGuard-for-singbox — Unified Installer%b\n" "$BLUE" "$NC"
-    printf "  %bRepo:%b %s\n" "$BLUE" "$NC" "$REPO"
+    printf "  %sPasarGuard-for-singbox — Unified Installer%s\n" "$BLUE" "$NC"
+    printf "  %sRepo:%s %s\n" "$BLUE" "$NC" "$REPO"
     printf "\n"
     printf "  1) Install Panel\n"
     printf "  2) Install Node\n"
@@ -335,14 +344,14 @@ show_menu() {
 
 show_quick_help() {
     printf "\n"
-    printf "%b PasarGuard-for-singbox Installer %b\n" "$BLUE" "$NC"
-    printf "%b Repo: %b %s\n" "$BLUE" "$NC" "$REPO"
+    printf "%s PasarGuard-for-singbox Installer %s\n" "$BLUE" "$NC"
+    printf "%s Repo: %s %s\n" "$BLUE" "$NC" "$REPO"
     printf "\n"
-    printf "  %b Interactive mode: %b\n" "$GREEN" "$NC"
+    printf "  %s Interactive mode: %s\n" "$GREEN" "$NC"
     printf "    curl -sLo install.sh %s/raw/main/install.sh\n" "$REPO"
     printf "    bash install.sh\n"
     printf "\n"
-    printf "  %b Direct mode: %b\n" "$GREEN" "$NC"
+    printf "  %s Direct mode: %s\n" "$GREEN" "$NC"
     printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh panel\n" "$REPO"
     printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh node\n" "$REPO"
     printf "    curl -sLo install.sh %s/raw/main/install.sh && bash install.sh sub\n" "$REPO"
