@@ -1,0 +1,51 @@
+# ============================================================
+#  PasarGuard-for-singbox — Docker Compose
+#  One command to start everything:
+#    docker compose up -d
+# ============================================================
+
+services:
+  # --- Panel (API + Dashboard) ---
+  panel:
+    build:
+      context: ./panel-main
+      dockerfile: Dockerfile
+    image: pasarguard-singbox-panel:latest
+    container_name: pasarguard-panel
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - pasarguard_data:/var/lib/pasarguard
+    depends_on:
+      node:
+        condition: service_started
+
+  # --- Node (sing-box + WireGuard agent) ---
+  node:
+    build:
+      context: ./node-main
+      dockerfile: Dockerfile
+    image: pasarguard-singbox-node:latest
+    container_name: pasarguard-node
+    restart: always
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    environment:
+      SERVICE_PORT: 62050
+      SERVICE_PROTOCOL: grpc
+      SINGBOX_EXECUTABLE_PATH: /usr/local/bin/sing-box
+      GENERATED_CONFIG_PATH: /var/lib/pg-node/generated
+      SSL_CERT_FILE: /var/lib/pg-node/certs/ssl_cert.pem
+      SSL_KEY_FILE: /var/lib/pg-node/certs/ssl_key.pem
+      PG_NODE_WG_HOST_ROUTING: "1"
+      API_KEY: ${API_KEY:-}
+    volumes:
+      - pg_node_data:/var/lib/pg-node
+
+volumes:
+  pasarguard_data:
+  pg_node_data:
