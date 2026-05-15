@@ -94,18 +94,24 @@ install_panel() {
     PANEL_DIR="${PANEL_DIR:-$DEFAULT_PANEL_DIR}"
     info "Install directory: $PANEL_DIR"
 
-    # Install python3 + venv (distro-specific name)
+    # Install python3 + venv
     ensure_deps python3 git curl
-    # Debian splits ensurepip into python3.X-venv — install it unconditionally
-    if [ -f /etc/debian_version ]; then
-        PY_VER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3")
-        info "Installing python${PY_VER}-venv..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq "python${PY_VER}-venv" || {
-            warn "Failed to install python${PY_VER}-venv, trying python3-venv..."
-            sudo apt-get install -y -qq python3-venv
-        }
-    elif ! python3 -m venv --help &>/dev/null; then
-        $INSTALL_CMD python3-venv
+    # python3-venv is a separate package on Debian/Ubuntu. Install it
+    # now so that ensurepip is available when we create the venv below.
+    # We try the version-specific name first (python3.12-venv), then
+    # the generic one; if both fail, we still attempt venv creation
+    # (the system may already have it).
+    PY_VER=$(python3 -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "3")
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get update -qq 2>/dev/null || true
+        sudo apt-get install -y -qq "python${PY_VER}-venv" 2>/dev/null || \
+            sudo apt-get install -y -qq python3-venv 2>/dev/null || true
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y "python${PY_VER}-venv" 2>/dev/null || true
+    elif command -v yum &>/dev/null; then
+        sudo yum install -y "python${PY_VER}-venv" 2>/dev/null || true
+    elif command -v apk &>/dev/null; then
+        sudo apk add "python${PY_VER}-venv" 2>/dev/null || true
     fi
 
     if [ -d "$PANEL_DIR/.git" ]; then
